@@ -2,7 +2,7 @@
  *
  * Pentaho Data Integration
  *
- * Copyright (C) 2002-2018 by Hitachi Vantara : http://www.pentaho.com
+ * Copyright (C) 2002-2019 by Hitachi Vantara : http://www.pentaho.com
  *
  *******************************************************************************
  *
@@ -32,6 +32,7 @@ import org.apache.commons.vfs2.cache.WeakRefFilesCache;
 import org.apache.commons.vfs2.impl.DefaultFileSystemManager;
 import org.apache.commons.vfs2.impl.StandardFileSystemManager;
 import org.apache.commons.vfs2.provider.local.LocalFile;
+import org.pentaho.di.connections.vfs.VFSHelper;
 import org.pentaho.di.core.Const;
 import org.pentaho.di.core.exception.KettleFileException;
 import org.pentaho.di.core.util.UUIDUtil;
@@ -53,11 +54,15 @@ import java.util.Comparator;
 
 public class KettleVFS {
   public static final String TEMP_DIR = System.getProperty( "java.io.tmpdir" );
+  public static final String CONNECTION = "connection";
 
   private static Class<?> PKG = KettleVFS.class; // for i18n purposes, needed by Translator2!!
 
   private static final KettleVFS kettleVFS = new KettleVFS();
+  private static FileSystemOptions fsOptionsForScheme;
   private final DefaultFileSystemManager fsm;
+  private static final int TIMEOUT_LIMIT = 9000;
+  private static final int TIME_TO_SLEEP_STEP = 50;
 
   private static VariableSpace defaultVariableSpace;
 
@@ -113,8 +118,10 @@ public class KettleVFS {
     return getFileObject( vfsFilename, defaultVariableSpace, fsOptions );
   }
 
-  public static FileObject getFileObject( String vfsFilename, VariableSpace space, FileSystemOptions fsOptions ) throws KettleFileException {
+  public static FileObject getFileObject( String vfsFilename, VariableSpace space, FileSystemOptions fsOptions )
+    throws KettleFileException {
     try {
+      fsOptionsForScheme = fsOptions;
       FileSystemManager fsManager = getInstance().getFileSystemManager();
 
       // We have one problem with VFS: if the file is in a subdirectory of the current one: somedir/somefile
@@ -126,12 +133,28 @@ public class KettleVFS {
       // If not, we are going to assume it's a file.
       //
       boolean relativeFilename = true;
-      String[] schemes = fsManager.getSchemes();
-      for ( int i = 0; i < schemes.length && relativeFilename; i++ ) {
-        if ( vfsFilename.startsWith( schemes[i] + ":" ) ) {
+      String[] initialSchemes = fsManager.getSchemes();
+
+      relativeFilename = checkForScheme( initialSchemes, relativeFilename, vfsFilename, space, fsOptionsForScheme );
+
+      int timeOut = TIMEOUT_LIMIT;
+
+      boolean hasScheme = vfsFilename != null && vfsFilename.contains( "://" ); // check for bigData providers
+      //we have to check for hasScheme even if it is marked as a relative path because that scheme could not
+      //be available by getSchemes at the time we validate our relativeFilename flag.
+      //So we check if even it is marked as relative path if it contains a possible scheme format
+      //if it does, then give it some time to be loaded, until we get it our timeout is up.
+
+      while ( relativeFilename && hasScheme && timeOut > 0 ) {
+        String[] schemes = fsManager.getSchemes();
+        try {
+          Thread.sleep( TIME_TO_SLEEP_STEP );
+          timeOut -= TIME_TO_SLEEP_STEP;
+          relativeFilename = checkForScheme( schemes, relativeFilename, vfsFilename, space, fsOptionsForScheme );
+        } catch ( InterruptedException e ) {
           relativeFilename = false;
-          // We have a VFS URL, load any options for the file system driver
-          fsOptions = buildFsOptions( space, fsOptions, vfsFilename, schemes[i] );
+          Thread.currentThread().interrupt();
+          break;
         }
       }
 
@@ -148,8 +171,8 @@ public class KettleVFS {
         }
       }
 
-      if ( fsOptions != null ) {
-        return fsManager.resolveFile( filename, fsOptions );
+      if ( fsOptionsForScheme != null ) {
+        return fsManager.resolveFile( filename, fsOptionsForScheme );
       } else {
         return fsManager.resolveFile( filename );
       }
@@ -157,6 +180,19 @@ public class KettleVFS {
       throw new KettleFileException( "Unable to get VFS File object for filename '"
         + cleanseFilename( vfsFilename ) + "' : " + e.getMessage(), e );
     }
+  }
+
+  protected static boolean checkForScheme( String[] initialSchemes, boolean relativeFilename, String vfsFilename,
+                                         VariableSpace space, FileSystemOptions fsOptions )
+    throws IOException {
+    for ( int i = 0; i < initialSchemes.length && relativeFilename; i++ ) {
+      if ( vfsFilename.startsWith( initialSchemes[ i ] + ":" ) ) {
+        relativeFilename = false;
+        // We have a VFS URL, load any options for the file system driver
+        fsOptionsForScheme = buildFsOptions( space, fsOptions, vfsFilename, initialSchemes[ i ] );
+      }
+    }
+    return relativeFilename;
   }
 
   /**
@@ -170,20 +206,26 @@ public class KettleVFS {
   }
 
   private static FileSystemOptions buildFsOptions( VariableSpace varSpace, FileSystemOptions sourceOptions,
-      String vfsFilename, String scheme ) throws IOException {
+                                                   String vfsFilename, String scheme ) throws IOException {
     if ( varSpace == null || vfsFilename == null ) {
       // We cannot extract settings from a non-existant variable space
       return null;
     }
 
     IKettleFileSystemConfigBuilder configBuilder =
-        KettleFileSystemConfigBuilderFactory.getConfigBuilder( varSpace, scheme );
+      KettleFileSystemConfigBuilderFactory.getConfigBuilder( varSpace, scheme );
 
     FileSystemOptions fsOptions = ( sourceOptions == null ) ? new FileSystemOptions() : sourceOptions;
 
     String[] varList = varSpace.listVariables();
 
     for ( String var : varList ) {
+      if ( var.equalsIgnoreCase( CONNECTION ) && varSpace.getVariable( var ) != null ) {
+        FileSystemOptions fileSystemOptions = VFSHelper.getOpts( vfsFilename, varSpace.getVariable( var ) );
+        if ( fileSystemOptions != null ) {
+          return fileSystemOptions;
+        }
+      }
       if ( var.startsWith( "vfs." ) ) {
         String param = configBuilder.parseParameterName( var, scheme );
         String varScheme = KettleGenericFileSystemConfigBuilder.extractScheme( var );
@@ -202,10 +244,8 @@ public class KettleVFS {
   /**
    * Read a text file (like an XML document). WARNING DO NOT USE FOR DATA FILES.
    *
-   * @param vfsFilename
-   *          the filename or URL to read from
-   * @param charSetName
-   *          the character set of the string (UTF-8, ISO8859-1, etc)
+   * @param vfsFilename the filename or URL to read from
+   * @param charSetName the character set of the string (UTF-8, ISO8859-1, etc)
    * @return The content of the file as a String
    * @throws IOException
    */
@@ -213,7 +253,8 @@ public class KettleVFS {
     return getTextFileContent( vfsFilename, null, charSetName );
   }
 
-  public static String getTextFileContent( String vfsFilename, VariableSpace space, String charSetName ) throws KettleFileException {
+  public static String getTextFileContent( String vfsFilename, VariableSpace space, String charSetName )
+    throws KettleFileException {
     try {
       InputStream inputStream = null;
 
@@ -310,7 +351,8 @@ public class KettleVFS {
     return getOutputStream( vfsFilename, defaultVariableSpace, append );
   }
 
-  public static OutputStream getOutputStream( String vfsFilename, VariableSpace space, boolean append ) throws KettleFileException {
+  public static OutputStream getOutputStream( String vfsFilename, VariableSpace space, boolean append )
+    throws KettleFileException {
     try {
       FileObject fileObject = getFileObject( vfsFilename, space );
       return getOutputStream( fileObject, append );
@@ -320,7 +362,7 @@ public class KettleVFS {
   }
 
   public static OutputStream getOutputStream( String vfsFilename, VariableSpace space,
-      FileSystemOptions fsOptions, boolean append ) throws KettleFileException {
+                                              FileSystemOptions fsOptions, boolean append ) throws KettleFileException {
     try {
       FileObject fileObject = getFileObject( vfsFilename, space, fsOptions );
       return getOutputStream( fileObject, append );
@@ -396,7 +438,6 @@ public class KettleVFS {
   }
 
   /**
-   *
    * @param prefix    - file name
    * @param suffix    - file extension
    * @param directory - directory where file will be created
@@ -423,7 +464,8 @@ public class KettleVFS {
     return createTempFile( prefix, suffix.ext, directory, space );
   }
 
-  public static FileObject createTempFile( String prefix, String suffix, String directory, VariableSpace space ) throws KettleFileException {
+  public static FileObject createTempFile( String prefix, String suffix, String directory, VariableSpace space )
+    throws KettleFileException {
     try {
       FileObject fileObject;
       do {
@@ -433,7 +475,7 @@ public class KettleVFS {
         // being
         // duplicated which would cause the sort to fail.
         String filename =
-            new StringBuilder( 50 ).append( directory ).append( '/' ).append( prefix ).append( '_' ).append(
+          new StringBuilder( 50 ).append( directory ).append( '/' ).append( prefix ).append( '_' ).append(
             UUIDUtil.getUUIDAsString() ).append( suffix ).toString();
         fileObject = getFileObject( filename, space );
       } while ( fileObject.exists() );
@@ -461,7 +503,7 @@ public class KettleVFS {
    * @return a FileInputStream
    * @throws IOException
    * @deprecated because of API change in Apache VFS. As a workaround use FileObject.getName().getPathDecoded(); Then
-   *             use a regular File() object to create a File Input stream.
+   * use a regular File() object to create a File Input stream.
    */
   @Deprecated
   public static FileInputStream getFileInputStream( FileObject fileObject ) throws IOException {
@@ -478,6 +520,7 @@ public class KettleVFS {
   /**
    * Check if filename starts with one of the known protocols like file: zip: ram: smb: jar: etc.
    * If yes, return true otherwise return false
+   *
    * @param vfsFileName
    * @return boolean
    */

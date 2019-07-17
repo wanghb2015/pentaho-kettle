@@ -2,7 +2,7 @@
  *
  * Pentaho Data Integration
  *
- * Copyright (C) 2002-2018 by Hitachi Vantara : http://www.pentaho.com
+ * Copyright (C) 2002-2019 by Hitachi Vantara : http://www.pentaho.com
  *
  *******************************************************************************
  *
@@ -23,9 +23,15 @@
 package org.pentaho.di.core.database;
 
 import com.google.common.collect.Sets;
+
 import org.pentaho.di.core.Const;
+import org.pentaho.di.core.exception.KettleDatabaseException;
 import org.pentaho.di.core.row.ValueMetaInterface;
 import org.pentaho.di.core.util.Utils;
+import org.pentaho.di.i18n.BaseMessages;
+
+import java.sql.DatabaseMetaData;
+import java.sql.ResultSetMetaData;
 
 import java.util.Set;
 
@@ -37,6 +43,7 @@ import java.util.Set;
  */
 
 public class MySQLDatabaseMeta extends BaseDatabaseMeta implements DatabaseInterface {
+  private static final Class<?> PKG = MySQLDatabaseMeta.class;
 
   private static final int VARCHAR_LIMIT = 65_535;
 
@@ -482,18 +489,27 @@ public class MySQLDatabaseMeta extends BaseDatabaseMeta implements DatabaseInter
   }
 
   /**
-   * In MySQL, physically, a schema is synonymous with a database. You can substitute the keyword SCHEMA
-   * instead of DATABASE in MySQL SQL syntax, for example using CREATE SCHEMA instead of CREATE DATABASE.
+   * Returns the column name for a MySQL field checking if the driver major version is "greater than" or "lower or equal" to 3.
    *
-   * Some other database products draw a distinction. For example, in the Oracle Database product,
-   * a schema represents only a part of a database: the tables and other objects owned by a single user.
-   *
-   * in: https://dev.mysql.com/doc/refman/8.0/en/glossary.html#glos_schema
-   *
-   * @return false
+   * @param dbMetaData
+   * @param rsMetaData
+   * @param index
+   * @return The column label if version is greater than 3 or the column name if version is lower or equal to 3.
+   * @throws KettleDatabaseException
    */
-  @Override
-  public boolean supportsSchemas() {
-    return false;
+  public String getLegacyColumnName( DatabaseMetaData dbMetaData, ResultSetMetaData rsMetaData, int index ) throws KettleDatabaseException {
+    if ( dbMetaData == null ) {
+      throw new KettleDatabaseException( BaseMessages.getString( PKG, "MySQLDatabaseMeta.Exception.LegacyColumnNameNoDBMetaDataException" ) );
+    }
+
+    if ( rsMetaData == null ) {
+      throw new KettleDatabaseException( BaseMessages.getString( PKG, "MySQLDatabaseMeta.Exception.LegacyColumnNameNoRSMetaDataException" ) );
+    }
+
+    try {
+      return dbMetaData.getDriverMajorVersion() > 3 ? rsMetaData.getColumnLabel( index ) : rsMetaData.getColumnName( index );
+    } catch ( Exception e ) {
+      throw new KettleDatabaseException( String.format( "%s: %s", BaseMessages.getString( PKG, "MySQLDatabaseMeta.Exception.LegacyColumnNameException" ), e.getMessage() ), e );
+    }
   }
 }

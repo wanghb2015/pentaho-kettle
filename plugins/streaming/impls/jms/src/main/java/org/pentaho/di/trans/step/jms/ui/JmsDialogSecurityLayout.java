@@ -2,7 +2,7 @@
  *
  * Pentaho Data Integration
  *
- * Copyright (C) 2018 by Hitachi Vantara : http://www.pentaho.com
+ * Copyright (C) 2018-2019 by Hitachi Vantara : http://www.pentaho.com
  *
  *******************************************************************************
  *
@@ -30,6 +30,7 @@ import org.eclipse.swt.layout.FormAttachment;
 import org.eclipse.swt.layout.FormData;
 import org.eclipse.swt.layout.FormLayout;
 import org.eclipse.swt.widgets.Composite;
+import org.eclipse.swt.widgets.Shell;
 import org.pentaho.di.i18n.BaseMessages;
 import org.pentaho.di.trans.TransMeta;
 import org.pentaho.di.trans.step.jms.JmsDelegate;
@@ -79,7 +80,7 @@ class JmsDialogSecurityLayout {
 
   JmsDialogSecurityLayout(
     PropsUI props, CTabFolder wTabFolder, ModifyListener lsMod, TransMeta transMeta,
-    boolean sslEnabled, JmsDelegate jmsDelegate ) {
+    boolean sslEnabled, JmsDelegate jmsDelegate, Shell shell ) {
     checkNotNull( props );
     checkNotNull( wTabFolder );
     checkNotNull( lsMod );
@@ -157,6 +158,7 @@ class JmsDialogSecurityLayout {
 
   void saveTableValues() {
     Map<String, String> tableValues = checkBoxTableCombo.getPropertiesData();
+
     jmsDelegate.sslEnabled = checkBoxTableCombo.getIsEnabled();
     jmsDelegate.sslUseDefaultContext = checkBoxTableCombo.getUseDefaultSslContext();
 
@@ -171,6 +173,7 @@ class JmsDialogSecurityLayout {
       jmsDelegate.amqSslProvider = tableValues.get( SSL_AMQ_PROVIDER );
       jmsDelegate.amqSslTrustAll = tableValues.get( SSL_AMQ_TRUST_ALL );
       jmsDelegate.amqSslVerifyHost = tableValues.get( SSL_AMQ_VERIFY_HOST );
+      jmsDelegate.sslCipherSuite = tableValues.get( SSL_CIPHER_SUITE );
     } else {
       if ( checkBoxTableCombo.getSelectedConnectionType().equals( JmsProvider.ConnectionType.WEBSPHERE ) ) {
         jmsDelegate.sslCipherSuite = tableValues.get( SSL_CIPHER_SUITE );
@@ -201,7 +204,6 @@ class JmsDialogSecurityLayout {
     }
     this.sslConfig.put( SSL_CIPHER_SUITE, this.jmsDelegate.sslCipherSuite );
     this.sslConfig.put( SSL_IBM_FIPS_REQUIRED, this.jmsDelegate.ibmSslFipsRequired );
-
 
     this.checkBoxTableCombo.updateDataMap( this.sslConfig );
   }
@@ -234,7 +236,12 @@ class JmsDialogSecurityLayout {
       ibmMqAuthComposite.setVisible( false );
       activeMqAuthComposite.setVisible( true );
       populateTableActiveMq();
-
     }
+    checkBoxTableCombo.resetPropertyTableVisibility();
   }
+
+  void setConnectionForm( ConnectionForm connectionForm ) {
+    checkBoxTableCombo.setConnectionForm( connectionForm );
+  }
+
 }

@@ -3,7 +3,7 @@
  *
  * Pentaho Data Integration
  *
- * Copyright (C) 2002-2018 by Hitachi Vantara : http://www.pentaho.com
+ * Copyright (C) 2002-2019 by Hitachi Vantara : http://www.pentaho.com
  *
  *******************************************************************************
  *
@@ -54,6 +54,7 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 
+import org.apache.commons.lang.StringUtils;
 import org.apache.commons.vfs2.FileObject;
 import org.pentaho.di.core.Const;
 import org.pentaho.di.core.util.Utils;
@@ -128,6 +129,8 @@ public class Database implements VariableSpace, LoggingObjectInterface {
   private static final Map<String, Set<String>> registeredDrivers = new HashMap<String, Set<String>>();
 
   private DatabaseMeta databaseMeta;
+
+  private final String DATA_SERVICES_PLUGIN_ID = "KettleThin";
 
   private int rowlimit;
   private int commitsize;
@@ -405,7 +408,8 @@ public class Database implements VariableSpace, LoggingObjectInterface {
    * <ol>
    * <li>If <code>databaseMeta.getAccessType()</code> returns
    * <code>DatabaseMeta.TYPE_ACCESS_JNDI</code>, then the connection's datasource is looked up in JNDI </li>
-   * <li>If <code>databaseMeta.isUsingConnectionPool()</code>, then the connection's datasource is looked up in the pool</li>
+   * <li>If <code>databaseMeta.isUsingConnectionPool()</code>, then the connection's datasource is looked up in the
+   * pool</li>
    * <li>otherwise, the connection is established via {@linkplain java.sql.DriverManager}</li>
    * </ol>
    *
@@ -441,7 +445,8 @@ public class Database implements VariableSpace, LoggingObjectInterface {
               this.connection = dsp.getNamedDataSource( name, DatasourceType.POOLED ).getConnection();
             } catch ( UnsupportedOperationException | NullPointerException e ) {
               // UnsupportedOperationException is happen at DatabaseUtil doesn't support pooled DS, use legacy routine
-              // NullPointerException is happen when we will try to run the transformation on the remote server but server does not have such databases, so will using legacy routine as well
+              // NullPointerException is happen when we will try to run the transformation on the remote server but
+              // server does not have such databases, so will using legacy routine as well
               this.connection = ConnectionPoolUtil.getConnection( log, databaseMeta, partitionId );
             }
             if ( getConnection().getAutoCommit() != isAutoCommit() ) {
@@ -1843,14 +1848,12 @@ public class Database implements VariableSpace, LoggingObjectInterface {
    * Returns a RowMeta describing the fields of a table expression.
    *
    * <p>Note that this implementation makes use of a SQL statement
-   * in order to populate the ValueMeta object in the RowMeta it returns.
-   * This is sometimes necessary when the caller needs the ValueMeta
-   * values to be properly casted.
+   * in order to populate the ValueMeta object in the RowMeta it returns. This is sometimes necessary when the caller
+   * needs the ValueMeta values to be properly casted.
    *
    * <p>In cases where a simple list of columns is required, it is preferable
-   * to use {@link #getTableFieldsMeta(String, String)}. This other method
-   * will not use a SQL query and will populate whatever information it can
-   * using @link {@link DatabaseMetaData#getColumns(String, String, String, String)}.
+   * to use {@link #getTableFieldsMeta(String, String)}. This other method will not use a SQL query and will populate
+   * whatever information it can using @link {@link DatabaseMetaData#getColumns(String, String, String, String)}.
    *
    * @param tablename This is the properly quoted, and schema prefixed table name.
    */
@@ -1865,10 +1868,8 @@ public class Database implements VariableSpace, LoggingObjectInterface {
   /**
    * See if the table specified exists by reading
    *
-   * @param tablename
-   *          The name of the table to check.<br>
-   *          This is supposed to be the properly quoted name of the table or the complete schema-table name
-   *          combination.
+   * @param tablename The name of the table to check.<br> This is supposed to be the properly quoted name of the table
+   *                  or the complete schema-table name combination.
    * @return true if the table exists, false if it doesn't.
    * @deprecated Deprecated in favor of {@link #checkTableExists(String, String)}
    */
@@ -1886,7 +1887,8 @@ public class Database implements VariableSpace, LoggingObjectInterface {
         return false;
       }
     } catch ( Exception e ) {
-      throw new KettleDatabaseException( "Unable to check if table [" + tablename + "] exists on connection [" + databaseMeta.getName() + "]", e );
+      throw new KettleDatabaseException(
+        "Unable to check if table [" + tablename + "] exists on connection [" + databaseMeta.getName() + "]", e );
     }
   }
 
@@ -1899,40 +1901,28 @@ public class Database implements VariableSpace, LoggingObjectInterface {
    * <p>Contrary to previous versions of similar duplicated methods, this implementation
    * does not require quoted identifiers.
    *
-   * @param tablename
-   *          The unquoted name of the table to check.<br>
-   *          This is NOT the properly quoted name of the table or the complete schema-table name
-   *          combination.
-   * @param schema
-   *          The unquoted name of the schema.
+   * @param tablename The unquoted name of the table to check.<br> This is NOT the properly quoted name of the table or
+   *                  the complete schema-table name combination.
+   * @param schema    The unquoted name of the schema.
    * @return true if the table exists, false if it doesn't.
    */
   public boolean checkTableExists( String schema, String tablename ) throws KettleDatabaseException {
-    // Try with metadata first.
-    try {
-      boolean exists = checkTableExistsByDbMeta( schema, tablename );
-      return exists;
-    } catch ( KettleDatabaseException e ) {
-      // That's fine. We will do this old school.
-      if ( log.isDebug() ) {
-        log.logDebug( "Failed to load metadata for " + schema + "." + tablename );
-      }
-    }
 
-    // Metadata didn't work. Let use a statement
-    return checkTableExists( databaseMeta.getQuotedSchemaTableCombination( schema, tablename ) );
+    if ( useJdbcMeta() ) {
+      return checkTableExistsByDbMeta( schema, tablename );
+    } else {
+      return checkTableExists( databaseMeta.getQuotedSchemaTableCombination( schema, tablename ) );
+    }
   }
 
   /**
    * See if the table specified exists by getting db metadata.
    *
-   * @param tablename
-   *          The name of the table to check.<br>
-   *          This is supposed to be the properly quoted name of the table or the complete schema-table name
-   *          combination.
+   * @param tablename The name of the table to check.<br> This is supposed to be the properly quoted name of the table
+   *                  or the complete schema-table name combination.
    * @return true if the table exists, false if it doesn't.
-   * @deprecated Deprecated in favor of {@link #checkTableExists(String, String)}
    * @throws KettleDatabaseException
+   * @deprecated Deprecated in favor of {@link #checkTableExists(String, String)}
    */
   public boolean checkTableExistsByDbMeta( String schema, String tablename ) throws KettleDatabaseException {
     boolean isTableExist = false;
@@ -1951,7 +1941,9 @@ public class Database implements VariableSpace, LoggingObjectInterface {
         }
       }
     } catch ( SQLException e ) {
-      throw new KettleDatabaseException( BaseMessages.getString( PKG, "Database.Error.UnableToCheckExistingTable", tablename, databaseMeta.getName() ), e );
+      throw new KettleDatabaseException(
+        BaseMessages.getString( PKG, "Database.Error.UnableToCheckExistingTable", tablename, databaseMeta.getName() ),
+        e );
     }
     return isTableExist;
   }
@@ -1959,13 +1951,10 @@ public class Database implements VariableSpace, LoggingObjectInterface {
   /**
    * Retrieves the table description matching the schema and table name.
    *
-   * @param shema
-   *          the schema name pattern
-   * @param table
-   *          the table name pattern
+   * @param shema the schema name pattern
+   * @param table the table name pattern
    * @return table description row set
-   * @throws KettleDatabaseException
-   *           if DatabaseMetaData is null or some database error occurs
+   * @throws KettleDatabaseException if DatabaseMetaData is null or some database error occurs
    */
   private ResultSet getTableMetaData( String schema, String table ) throws KettleDatabaseException {
     ResultSet tables = null;
@@ -1986,13 +1975,10 @@ public class Database implements VariableSpace, LoggingObjectInterface {
   /**
    * Retrieves the columns metadata matching the schema and table name.
    *
-   * @param shema
-   *          the schema name pattern
-   * @param table
-   *          the table name pattern
+   * @param shema the schema name pattern
+   * @param table the table name pattern
    * @return columns description row set
-   * @throws KettleDatabaseException
-   *           if DatabaseMetaData is null or some database error occurs
+   * @throws KettleDatabaseException if DatabaseMetaData is null or some database error occurs
    */
   private ResultSet getColumnsMetaData( String schema, String table ) throws KettleDatabaseException {
     ResultSet columns = null;
@@ -2019,12 +2005,24 @@ public class Database implements VariableSpace, LoggingObjectInterface {
    * <p>Contrary to previous versions of similar duplicated methods, this implementation
    * does not require quoted identifiers.
    *
-   * @param schema  The name of the schema to check.
+   * @param schema     The name of the schema to check.
    * @param tablename  The name of the table to check.
    * @param columnname The name of the column to check.
    * @return true if the table exists, false if it doesn't.
    */
-  public boolean checkColumnExists( String schemaname, String tablename, String columnname ) throws KettleDatabaseException {
+  public boolean checkColumnExists( String schemaname, String tablename, String columnname )
+    throws KettleDatabaseException {
+    if ( useJdbcMeta() ) {
+      return checkColumnExistsByDbMeta( schemaname, tablename, columnname );
+    } else {
+      return checkColumnExists(
+        databaseMeta.quoteField( columnname ),
+        databaseMeta.getQuotedSchemaTableCombination( schemaname, tablename ) );
+    }
+  }
+
+  public boolean checkColumnExistsByDbMeta( String schemaname, String tablename, String columnname )
+    throws KettleDatabaseException {
     if ( log.isDebug() ) {
       log.logDebug( "Checking if column [" + columnname + "] exists in table [" + tablename + "] !" );
     }
@@ -2040,15 +2038,9 @@ public class Database implements VariableSpace, LoggingObjectInterface {
       return false;
     } catch ( KettleDatabaseException | SQLException e ) {
       // That's ok. We will use a prepared statement.
-      if ( log.isDebug() ) {
-        log.logDebug( "Metadata check failed. Fallback to statement check." );
-      }
+      throw new KettleDatabaseException( "Metadata check failed. Fallback to statement check." );
     }
 
-    // Failed. Just do this old school.
-    return checkColumnExists(
-      databaseMeta.quoteField( columnname ),
-      databaseMeta.getQuotedSchemaTableCombination( schemaname, tablename ) );
   }
 
   /**
@@ -2169,8 +2161,7 @@ public class Database implements VariableSpace, LoggingObjectInterface {
     String cr_index = "";
     DatabaseInterface databaseInterface = databaseMeta.getDatabaseInterface();
 
-    // Exasol does not support explicit handling of indexes
-    if ( databaseInterface instanceof Exasol4DatabaseMeta ) {
+    if ( !databaseInterface.supportsIndexes() ) {
       return "";
     }
 
@@ -2271,16 +2262,27 @@ public class Database implements VariableSpace, LoggingObjectInterface {
    * metadata is used first and we only use statements when absolutely necessary.
    *
    * <p>Note that the ValueMeta returned here will not contain any actual values
-   * and as such, this method should be used whenever a simple list of columns is
-   * required, and we're not planning on looking at the actual data.
+   * and as such, this method should be used whenever a simple list of columns is required, and we're not planning on
+   * looking at the actual data.
    *
    * <p>Contrary to previous versions of similar duplicated methods, this implementation
    * does not require quoted identifiers.
    *
    * @param schemaName The unquoted schema name. Can be null.
-   * @param tableName The unquoted table name. Cannot be null.
+   * @param tableName  The unquoted table name. Cannot be null.
    */
   public RowMetaInterface getTableFieldsMeta( String schemaName, String tableName )
+    throws KettleDatabaseException {
+    if ( useJdbcMeta() ) {
+      return getTableFieldsMetaByDbMeta( schemaName, tableName );
+    } else {
+      String tableSchema = databaseMeta.getQuotedSchemaTableCombination( schemaName, tableName );
+      String sql = databaseMeta.getSQLQueryFields( tableSchema );
+      return getQueryFields( sql, false );
+    }
+  }
+
+  public RowMetaInterface getTableFieldsMetaByDbMeta( String schemaName, String tableName )
     throws KettleDatabaseException {
     try {
       // Cleanup a bit. In JDBC metadata, we want null names for
@@ -2321,8 +2323,11 @@ public class Database implements VariableSpace, LoggingObjectInterface {
       ResultSet rm =
         connection.getMetaData().getColumns( null, schemaName, tableName, null );
 
-      while ( rm.next() ) {
+      if ( fields == null ) {
+        fields = new RowMeta();
+      }
 
+      while ( rm.next() ) {
         ValueMetaInterface valueMeta = null;
         for ( ValueMetaInterface valueMetaClass : valueMetaPluginClasses ) {
           try {
@@ -2339,10 +2344,6 @@ public class Database implements VariableSpace, LoggingObjectInterface {
             }
           }
         }
-
-        if ( fields == null ) {
-          fields = new RowMeta();
-        }
         fields.addValueMeta( valueMeta );
       }
 
@@ -2355,13 +2356,9 @@ public class Database implements VariableSpace, LoggingObjectInterface {
 
       return fields;
     } catch ( Exception e ) {
-      if ( log.isDebug() ) {
-        log.logDebug( "Failed to fetch fields from jdbc meta ", e );
-      }
+      throw new KettleDatabaseException( "Failed to fetch fields from jdbc meta ", e );
     }
 
-    // Something went wrong. Use the old code path.
-    return getQueryFields( databaseMeta.getQuotedSchemaTableCombination( schemaName, tableName ), false );
   }
 
   public RowMetaInterface getQueryFields( String sql, boolean param, RowMetaInterface inform, Object[] data )
@@ -2403,7 +2400,11 @@ public class Database implements VariableSpace, LoggingObjectInterface {
         //
         fields = getQueryFieldsFromPreparedStatement( sql );
       } else {
-        fields = getQueryFieldsFromDatabaseMetaData();
+        if ( isDataServiceConnection() ) {
+          fields = getQueryFieldsFromDatabaseMetaData( sql );
+        } else {
+          fields = getQueryFieldsFromDatabaseMetaData();
+        }
       }
     } catch ( Exception e ) {
       /*
@@ -2422,12 +2423,16 @@ public class Database implements VariableSpace, LoggingObjectInterface {
     return fields;
   }
 
+  private boolean isDataServiceConnection() {
+    return DATA_SERVICES_PLUGIN_ID.equals( databaseMeta.getPluginId() );
+  }
+
   public RowMetaInterface getQueryFieldsFromPreparedStatement( String sql ) throws Exception {
     PreparedStatement preparedStatement = null;
     try {
       preparedStatement =
-          connection.prepareStatement( databaseMeta.stripCR( sql ), ResultSet.TYPE_FORWARD_ONLY,
-              ResultSet.CONCUR_READ_ONLY );
+        connection.prepareStatement( databaseMeta.stripCR( sql ), ResultSet.TYPE_FORWARD_ONLY,
+          ResultSet.CONCUR_READ_ONLY );
       preparedStatement.setMaxRows( 1 );
       ResultSetMetaData rsmd = preparedStatement.getMetaData();
       return getRowInfo( rsmd, false, false );
@@ -2445,8 +2450,13 @@ public class Database implements VariableSpace, LoggingObjectInterface {
   }
 
   public RowMetaInterface getQueryFieldsFromDatabaseMetaData() throws Exception {
+    return this.getQueryFieldsFromDatabaseMetaData( null );
+  }
 
-    ResultSet columns = connection.getMetaData().getColumns( "", "", databaseMeta.getName(), "" );
+  private RowMetaInterface getQueryFieldsFromDatabaseMetaData( String sql ) throws Exception {
+
+    ResultSet columns = connection.getMetaData().getColumns( "", "",
+      StringUtils.isNotBlank( sql ) ? sql : databaseMeta.getName(), "" );
     RowMetaInterface rowMeta = new RowMeta();
     while ( columns.next() ) {
       ValueMetaInterface valueMeta = null;
@@ -2498,7 +2508,7 @@ public class Database implements VariableSpace, LoggingObjectInterface {
   }
 
   public RowMetaInterface getQueryFieldsFallback( String sql, boolean param, RowMetaInterface inform,
-                                                   Object[] data ) throws KettleDatabaseException {
+                                                  Object[] data ) throws KettleDatabaseException {
     RowMetaInterface fields;
 
     try {
@@ -2637,8 +2647,8 @@ public class Database implements VariableSpace, LoggingObjectInterface {
     // Extract the name from the result set meta data...
     //
     String name;
-    if ( databaseMeta.isMySQLVariant() && getDatabaseMetaData().getDriverMajorVersion() > 3 ) {
-      name = new String( rm.getColumnLabel( i ) );
+    if ( databaseMeta.isMySQLVariant() ) {
+      name = databaseMeta.getDatabaseInterface().getLegacyColumnName( getDatabaseMetaData(), rm, i );
     } else {
       name = new String( rm.getColumnName( i ) );
     }
@@ -3132,9 +3142,16 @@ public class Database implements VariableSpace, LoggingObjectInterface {
     if ( dbmd == null ) {
       try {
         log.snap( Metrics.METRIC_DATABASE_GET_DBMETA_START, databaseMeta.getName() );
+
+        if ( connection == null ) {
+          throw new KettleDatabaseException( BaseMessages.getString( PKG,
+            "Database.Exception.EmptyConnectionError", databaseMeta.getDatabaseName() ) );
+        }
+
         dbmd = connection.getMetaData(); // Only get the metadata once!
       } catch ( Exception e ) {
-        throw new KettleDatabaseException( "Unable to get database metadata from this database connection", e );
+        throw new KettleDatabaseException( BaseMessages.getString( PKG,
+          "Database.Exception.UnableToGetMetadata" ), e );
       } finally {
         log.snap( Metrics.METRIC_DATABASE_GET_DBMETA_STOP, databaseMeta.getName() );
       }
@@ -3899,7 +3916,8 @@ public class Database implements VariableSpace, LoggingObjectInterface {
     return getTablenames( schemanamein, includeSchema, null );
   }
 
-  public String[] getTablenames( String schemanamein, boolean includeSchema, Map<String, String> props ) throws KettleDatabaseException {
+  public String[] getTablenames( String schemanamein, boolean includeSchema, Map<String, String> props )
+    throws KettleDatabaseException {
     Map<String, Collection<String>> tableMap = getTableMap( schemanamein, props );
     List<String> res = new ArrayList<String>();
     for ( String schema : tableMap.keySet() ) {
@@ -3923,7 +3941,8 @@ public class Database implements VariableSpace, LoggingObjectInterface {
     return getTableMap( schemanamein, null );
   }
 
-  public Map<String, Collection<String>> getTableMap( String schemanamein, Map<String, String> props ) throws KettleDatabaseException {
+  public Map<String, Collection<String>> getTableMap( String schemanamein, Map<String, String> props )
+    throws KettleDatabaseException {
     String schemaname = schemanamein;
     if ( schemaname == null ) {
       if ( databaseMeta.useSchemaNameForTableList() ) {
@@ -5085,4 +5104,11 @@ public class Database implements VariableSpace, LoggingObjectInterface {
       log.setForcingSeparateLogging( forcingSeparateLogging );
     }
   }
+
+  // Checks to see if the KETTLE_COMPATIBILITY_USE_JDBC_METADATA is set.  See PDI-17980 for more details.
+  private boolean useJdbcMeta() {
+    String useJdbcMeta = this.variables.getVariable( Const.KETTLE_COMPATIBILITY_USE_JDBC_METADATA, "false" );
+    return Boolean.TRUE.toString().equals( useJdbcMeta );
+  }
+
 }

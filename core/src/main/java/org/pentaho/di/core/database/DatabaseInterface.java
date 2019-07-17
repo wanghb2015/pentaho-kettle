@@ -2,7 +2,7 @@
  *
  * Pentaho Data Integration
  *
- * Copyright (C) 2002-2018 by Hitachi Vantara : http://www.pentaho.com
+ * Copyright (C) 2002-2019 by Hitachi Vantara : http://www.pentaho.com
  *
  *******************************************************************************
  *
@@ -22,7 +22,9 @@
 
 package org.pentaho.di.core.database;
 
+import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.Map;
@@ -383,6 +385,13 @@ public interface DatabaseInterface extends Cloneable {
   public boolean supportsBitmapIndex();
 
   /**
+   * @return true if the database supports indexes at all.  (Exasol and Snowflake do not)
+   */
+  default boolean supportsIndexes() {
+    return true;
+  }
+
+  /**
    * @return true if the database JDBC driver supports the setLong command
    */
   public boolean supportsSetLong();
@@ -738,10 +747,21 @@ public interface DatabaseInterface extends Cloneable {
   public int getMaximumPoolSize();
 
   /**
+    * @return the maximum pool size variable name
+   */
+  public String getMaximumPoolSizeString();
+
+  /**
    * @param maximumPoolSize
    *          the maximum pool size
    */
   public void setMaximumPoolSize( int maximumPoolSize );
+
+  /**
+   * @param maximumPoolSize
+   *          the maximum pool size variable name
+   */
+  public void setMaximumPoolSizeString( String maximumPoolSize );
 
   /**
    * @return the initial pool size
@@ -749,10 +769,21 @@ public interface DatabaseInterface extends Cloneable {
   public int getInitialPoolSize();
 
   /**
+   * @return the initial pool size variable name
+   */
+  public String getInitialPoolSizeString();
+
+  /**
    * @param initalPoolSize
    *          the initial pool size
    */
   public void setInitialPoolSize( int initalPoolSize );
+
+  /**
+   * @param initalPoolSize
+   *          the initial pool size variable name
+   */
+  public void setInitialPoolSizeString( String initalPoolSize );
 
   /**
    * @return true if the connection contains partitioning information
@@ -1219,4 +1250,19 @@ public interface DatabaseInterface extends Cloneable {
     return "";
   }
 
+  /**
+   * Allows to get the column name for JDBC drivers with different behavior for aliases depending on the connector version.
+   *
+   * @param dbMetaData
+   * @param rsMetaData
+   * @param index
+   * @return empty if the database doesn't support the legacy column name feature
+   * @throws KettleDatabaseException
+   */
+  default String getLegacyColumnName( DatabaseMetaData dbMetaData, ResultSetMetaData rsMetaData, int index ) throws KettleDatabaseException {
+    return "";
+  }
+
+  default void putOptionalOptions( Map<String, String> extraOptions ) {
+  }
 }

@@ -2,7 +2,7 @@
  *
  * Pentaho Data Integration
  *
- * Copyright (C) 2002-2018 by Hitachi Vantara : http://www.pentaho.com
+ * Copyright (C) 2002-2019 by Hitachi Vantara : http://www.pentaho.com
  *
  *******************************************************************************
  *
@@ -19,24 +19,27 @@
  * limitations under the License.
  *
  ******************************************************************************/
-
 package org.pentaho.di.core.database;
+
+import java.sql.DatabaseMetaData;
+import java.sql.ResultSetMetaData;
 
 import java.util.Set;
 
-import org.pentaho.di.core.Const;
-
 import com.google.common.collect.Sets;
 
+import org.pentaho.di.core.Const;
+import org.pentaho.di.core.exception.KettleDatabaseException;
+import org.pentaho.di.i18n.BaseMessages;
+
 public class MariaDBDatabaseMeta extends MySQLDatabaseMeta {
+  private static final Class<?> PKG = MariaDBDatabaseMeta.class;
+
   private static final Set<String> SHORT_MESSAGE_EXCEPTIONS = Sets.newHashSet( "org.mariadb.jdbc.internal.stream.MaxAllowedPacketException" );
-
-
 
   @Override public String[] getUsedLibraries() {
     return new String[] { "mariadb-java-client-1.4.6.jar" };
   }
-
 
   @Override public String getDriverClass() {
     if ( getAccessType() == DatabaseMeta.TYPE_ACCESS_ODBC ) {
@@ -64,15 +67,27 @@ public class MariaDBDatabaseMeta extends MySQLDatabaseMeta {
   }
 
   /**
-   * CREATE SCHEMA is a synonym for CREATE DATABASE.
-   * in: https://mariadb.com/kb/en/library/create-database/
+   * Returns the column name for a MariaDB field.
    *
-   * @see MySQLDatabaseMeta#supportsSchemas() for further details.
-   *
-   * @return false
+   * @param dbMetaData
+   * @param rsMetaData
+   * @param index
+   * @return The column label.
+   * @throws KettleDatabaseException
    */
-  @Override
-  public boolean supportsSchemas() {
-    return false;
+  @Override public String getLegacyColumnName( DatabaseMetaData dbMetaData, ResultSetMetaData rsMetaData, int index ) throws KettleDatabaseException {
+    if ( dbMetaData == null ) {
+      throw new KettleDatabaseException( BaseMessages.getString( PKG, "MySQLDatabaseMeta.Exception.LegacyColumnNameNoDBMetaDataException" ) );
+    }
+
+    if ( rsMetaData == null ) {
+      throw new KettleDatabaseException( BaseMessages.getString( PKG, "MySQLDatabaseMeta.Exception.LegacyColumnNameNoRSMetaDataException" ) );
+    }
+
+    try {
+      return rsMetaData.getColumnLabel( index );
+    } catch ( Exception e ) {
+      throw new KettleDatabaseException( String.format( "%s: %s", BaseMessages.getString( PKG, "MySQLDatabaseMeta.Exception.LegacyColumnNameException" ), e.getMessage() ), e );
+    }
   }
 }

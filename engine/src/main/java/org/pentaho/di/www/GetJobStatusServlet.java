@@ -2,7 +2,7 @@
  *
  * Pentaho Data Integration
  *
- * Copyright (C) 2002-2018 by Hitachi Vantara : http://www.pentaho.com
+ * Copyright (C) 2002-2019 by Hitachi Vantara : http://www.pentaho.com
  *
  *******************************************************************************
  *
@@ -286,7 +286,7 @@ public class GetJobStatusServlet extends BaseHttpServlet implements CartePluginI
             out.write( XML_HEADER );
             out.write( data );
             out.flush();
-            if ( finishedOrStopped && logId != null ) {
+            if ( finishedOrStopped && ( jobStatus.isFinished() || jobStatus.isStopped() ) && logId != null ) {
               cache.put( logId, xml, startLineNr );
             }
           }
@@ -318,7 +318,7 @@ public class GetJobStatusServlet extends BaseHttpServlet implements CartePluginI
         if ( isJettyMode() ) {
           out.println( "<link rel=\"stylesheet\" type=\"text/css\" href=\"/static/css/carte.css\" />" );
         } else {
-          out.print( StatusServletUtils.getPentahoStyles() );
+          out.print( StatusServletUtils.getPentahoStyles( root ) );
         }
         out.println( "</HEAD>" );
         out.println( "<BODY style=\"overflow: auto;\">" );

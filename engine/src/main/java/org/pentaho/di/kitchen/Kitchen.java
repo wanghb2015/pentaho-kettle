@@ -2,7 +2,7 @@
  *
  * Pentaho Data Integration
  *
- * Copyright (C) 2002-2018 by Hitachi Vantara : http://www.pentaho.com
+ * Copyright (C) 2002-2019 by Hitachi Vantara : http://www.pentaho.com
  *
  *******************************************************************************
  *
@@ -32,6 +32,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 
 import org.pentaho.di.base.CommandExecutorCodes;
+import org.pentaho.di.base.Params;
 import org.pentaho.di.core.Const;
 import org.pentaho.di.core.Result;
 import org.pentaho.di.core.util.Utils;
@@ -51,10 +52,8 @@ import org.pentaho.di.core.plugins.RepositoryPluginType;
 import org.pentaho.di.core.util.EnvUtil;
 import org.pentaho.di.core.util.ExecutorUtil;
 import org.pentaho.di.i18n.BaseMessages;
-import org.pentaho.di.job.Job;
 import org.pentaho.di.metastore.MetaStoreConst;
 import org.pentaho.di.pan.CommandLineOption;
-import org.pentaho.di.repository.RepositoryMeta;
 import org.pentaho.metastore.stores.delegate.DelegatingMetaStore;
 
 
@@ -113,12 +112,9 @@ public class Kitchen {
     metaStore.addMetaStore( MetaStoreConst.openLocalPentahoMetaStore() );
     metaStore.setActiveMetaStoreName( metaStore.getName() );
 
-    RepositoryMeta repositoryMeta = null;
-    Job job = null;
-
     StringBuilder optionRepname, optionUsername, optionTrustUser, optionPassword, optionJobname, optionDirname, initialDir;
     StringBuilder optionFilename, optionLoglevel, optionLogfile, optionLogfileOld, optionListdir;
-    StringBuilder optionListjobs, optionListrep, optionNorep, optionVersion, optionListParam, optionExport;
+    StringBuilder optionListjobs, optionListrep, optionNorep, optionVersion, optionListParam, optionExport, optionBase64Zip;
     NamedParams optionParams = new NamedParamsDefault();
     NamedParams customOptions = new NamedParamsDefault();
 
@@ -184,6 +180,7 @@ public class Kitchen {
         new CommandLineOption(
           "initialDir", null, initialDir =
           new StringBuilder(), false, true ),
+        new CommandLineOption( "zip", "Base64Zip", optionBase64Zip = new StringBuilder(), false, true ),
         new CommandLineOption(
           "custom", BaseMessages.getString( PKG, "Kitchen.ComdLine.Custom" ), customOptions, false ),
         maxLogLinesOption, maxLogTimeoutOption, };
@@ -257,10 +254,36 @@ public class Kitchen {
         }
       }
 
-      result = getCommandExecutor().execute( optionRepname.toString(), optionNorep.toString(), optionUsername.toString(),
-            optionTrustUser.toString(), optionPassword.toString(), optionDirname.toString(), optionFilename.toString(), optionJobname.toString(), optionListjobs.toString(),
-            optionListdir.toString(), optionExport.toString(), initialDir.toString(), optionListrep.toString(), optionListParam.toString(),
-            optionParams, customOptions, args.toArray( new String[ args.size() ] ) );
+      Params jobParams = ( new Params.Builder() )
+              .blockRepoConns( optionNorep.toString() )
+              .repoName( optionRepname.toString() )
+              .repoUsername( optionUsername.toString() )
+              .trustRepoUser( optionTrustUser.toString() )
+              .repoPassword( optionPassword.toString() )
+              .inputDir( optionDirname.toString() )
+              .inputFile( optionJobname.toString() )
+              .listRepoFiles( optionListjobs.toString() )
+              .listRepoDirs( optionListdir.toString() )
+              .exportRepo( optionExport.toString() )
+              .localFile( optionFilename.toString() )
+              .localJarFile( "" )
+              .localInitialDir( initialDir.toString() )
+              .listRepos( optionListrep.toString() )
+              .listFileParams( optionListParam.toString() )
+              .logLevel( "" )
+              .maxLogLines( "" )
+              .maxLogTimeout( "" )
+              .logFile( "" )
+              .oldLogFile( "" )
+              .version( "" )
+              .resultSetStepName( "" )
+              .resultSetCopyNumber( "" )
+              .base64Zip( optionBase64Zip.toString() )
+              .namedParams( optionParams )
+              .customNamedParams( customOptions )
+              .build();
+
+      result = getCommandExecutor().execute( jobParams );
 
     } catch ( Throwable t ) {
       t.printStackTrace();
